@@ -56,7 +56,7 @@ const entityMeta = {
   },
   facture: {
     title: 'Factures',
-    subtitle: 'Documents et échéances',
+    subtitle: 'Factures générées avec les commandes et suivi des échéances',
     tabs: [{ label: "Vue d'ensemble", to: '/dashboard/factures' }, { label: 'Commandes', to: '/dashboard/commandes' }, { label: 'Paiements', to: '/dashboard/paiements' }],
     primaryAction: 'Nouvelle facture',
     fetcher: getFactures,
@@ -209,8 +209,11 @@ export default function ModelPage({ entity = 'commande' }) {
   const [actionError, setActionError] = useState('');
   const [form, setForm] = useState({});
   const [panier, setPanier] = useState([]);
+  const [panierItemType, setPanierItemType] = useState('catalogue');
   const [selectedProductId, setSelectedProductId] = useState('');
   const [selectedQuantity, setSelectedQuantity] = useState(1);
+  const [customItemName, setCustomItemName] = useState('');
+  const [customItemPrice, setCustomItemPrice] = useState('');
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const role = defaultRole();
@@ -235,7 +238,7 @@ export default function ModelPage({ entity = 'commande' }) {
           const produitData = await getProduits();
           setProducts(produitData || []);
         }
-        if (entity === 'paiement' || entity === 'commande') {
+        if (entity === 'paiement' || entity === 'commande' || entity === 'facture') {
           const factureData = await getFactures();
           setInvoices(factureData || []);
         }
@@ -273,6 +276,11 @@ export default function ModelPage({ entity = 'commande' }) {
     if (type === 'utilisateur') setForm(createEmptyUserForm());
     if (type === 'facture') setForm(createEmptyInvoiceForm());
     setPanier([]);
+    setPanierItemType('catalogue');
+    setSelectedProductId('');
+    setSelectedQuantity(1);
+    setCustomItemName('');
+    setCustomItemPrice('');
     setModalType(type);
   };
 
@@ -318,6 +326,7 @@ export default function ModelPage({ entity = 'commande' }) {
       date_echeance: record.date_echeance ? String(record.date_echeance).slice(0, 10) : '',
     });
     setPanier([]);
+    setPanierItemType('catalogue');
     setModalType(type);
   };
 
@@ -326,8 +335,11 @@ export default function ModelPage({ entity = 'commande' }) {
     setEditingRecord(null);
     setForm({});
     setPanier([]);
+    setPanierItemType('catalogue');
     setSelectedProductId('');
     setSelectedQuantity(1);
+    setCustomItemName('');
+    setCustomItemPrice('');
   };
 
   const handleSubmit = async (event) => {
@@ -388,9 +400,11 @@ export default function ModelPage({ entity = 'commande' }) {
           fk_id_fournisseur: Number(form.fk_id_fournisseur),
           status: form.status,
           ...(!editingRecord ? {
-            panier: panier.map(({ id_produit, quantite }) => ({
-              id_produit: Number(id_produit),
-              quantite: Number(quantite),
+            panier: panier.map((item) => ({
+              ...(item.id_produit
+                ? { id_produit: Number(item.id_produit) }
+                : { nom_produit: item.nomProduit, prix: Number(item.prix) }),
+              quantite: Number(item.quantite),
             })),
           } : {}),
         }, editingRecord, createCommande);
@@ -464,12 +478,35 @@ export default function ModelPage({ entity = 'commande' }) {
   };
 
   const addToPanier = () => {
-    if (!selectedProductId) {
-      setMessage('Sélectionnez un produit à ajouter.');
-      return;
-    }
     if (!Number.isFinite(Number(selectedQuantity)) || Number(selectedQuantity) <= 0) {
       setMessage('La quantité doit être supérieure à zéro.');
+      return;
+    }
+    if (panierItemType === 'hors_catalogue') {
+      const name = customItemName.trim();
+      const price = Number(customItemPrice);
+      if (!name) {
+        setMessage('Saisissez le nom de l’article hors catalogue.');
+        return;
+      }
+      if (!customItemPrice.trim() || !Number.isFinite(price) || price < 0) {
+        setMessage('Saisissez un prix unitaire valide.');
+        return;
+      }
+      setMessage('');
+      setPanier((current) => [...current, {
+        ligneLocale: `${Date.now()}-${current.length}`,
+        nomProduit: name,
+        quantite: Number(selectedQuantity),
+        prix: price,
+      }]);
+      setCustomItemName('');
+      setCustomItemPrice('');
+      setSelectedQuantity(1);
+      return;
+    }
+    if (!selectedProductId) {
+      setMessage('Sélectionnez un produit à ajouter.');
       return;
     }
     const product = products.find((item) => String(item.id_produit) === String(selectedProductId));
@@ -515,6 +552,7 @@ export default function ModelPage({ entity = 'commande' }) {
             : 'Fournisseur inconnu',
         date: formatOrderDate(item.dateCommande),
         total: formatCurrency(item.total || 0),
+        articles: (item.lignes || []).map((line) => line.nom_produit).join(', '),
         status: item.status || 'en_attente',
       };
     });
@@ -615,7 +653,7 @@ export default function ModelPage({ entity = 'commande' }) {
     if (entity === 'commande') {
       return displayedRows.map((row, index) => (
         <tr key={`${row.ref}-${index}`}>
-          <td>{row.ref}</td>
+          <td>{row.ref}<small>{row.articles || 'Aucun article'}</small></td>
           <td>{row.supplier}</td>
           <td>{row.date}</td>
           <td>{row.total}</td>
@@ -787,24 +825,61 @@ export default function ModelPage({ entity = 'commande' }) {
                 <>
                   <div className="entity-grid"><label><span>Fournisseur</span><select required value={form.fk_id_fournisseur || ''} onChange={(e) => setForm({ ...form, fk_id_fournisseur: e.target.value })}><option value="">Sélectionner</option>{suppliers.map((item) => <option key={item.id_fournisseur} value={item.id_fournisseur}>{item.nomFournisseur} {item.prenomFournisseur}</option>)}</select></label><label><span>Statut</span><select required value={form.status || 'en_attente'} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="en_attente">En attente</option><option value="envoye">Envoyée</option><option value="confirme">Confirmée</option><option value="livree">Livrée</option><option value="annulee">Annulée</option></select></label></div>
                   {!editingRecord && <p className="entity-form-hint">Référence automatique : CMD-date-numéro unique. Elle est attribuée à l’enregistrement et ne peut pas être dupliquée.</p>}
+                  {!editingRecord && <p className="entity-form-hint">La facture sera générée automatiquement à partir des articles et de leurs prix.</p>}
 
                   {!editingRecord && (
                     <div className="entity-panier-box">
                       <div className="entity-panier-header">
                         <strong>Panier</strong>
                       </div>
-                      <div className="entity-panier-controls">
-                        <select required={panier.length === 0} value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)}>
-                          <option value="">Sélectionner un produit</option>
-                          {products.map((product) => <option key={product.id_produit} value={product.id_produit}>{product.nomProduit}</option>)}
+                      <label className="entity-panier-type">
+                        <span>Type d’article</span>
+                        <select value={panierItemType} onChange={(event) => {
+                          setPanierItemType(event.target.value);
+                          setSelectedProductId('');
+                          setCustomItemName('');
+                          setCustomItemPrice('');
+                        }}>
+                          <option value="catalogue">Produit du catalogue</option>
+                          <option value="hors_catalogue">Article hors catalogue</option>
                         </select>
+                      </label>
+                      <div className={`entity-panier-controls${panierItemType === 'hors_catalogue' ? ' is-custom' : ''}`}>
+                        {panierItemType === 'catalogue' ? (
+                          <select required={panier.length === 0} value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)}>
+                            <option value="">Sélectionner un produit</option>
+                            {products.map((product) => <option key={product.id_produit} value={product.id_produit}>{product.nomProduit}</option>)}
+                          </select>
+                        ) : (
+                          <>
+                            <input
+                              aria-label="Nom de l’article hors catalogue"
+                              maxLength={255}
+                              placeholder="Nom de l’article"
+                              required={panier.length === 0}
+                              value={customItemName}
+                              onChange={(event) => setCustomItemName(event.target.value)}
+                            />
+                            <input
+                              aria-label="Prix unitaire de l’article hors catalogue"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="Prix unitaire"
+                              required={panier.length === 0}
+                              value={customItemPrice}
+                              onChange={(event) => setCustomItemPrice(event.target.value)}
+                            />
+                          </>
+                        )}
                         <input aria-label="Quantité du produit" type="number" min="0.01" step="0.01" required value={selectedQuantity} onChange={(e) => setSelectedQuantity(e.target.value)} />
                         <button type="button" className="entity-inline-btn" onClick={addToPanier}>Ajouter</button>
                       </div>
+                      {panierItemType === 'hors_catalogue' && <p className="entity-form-hint">Cet article sera inclus dans cette commande sans être ajouté au catalogue ni à l’inventaire.</p>}
                       <div className="entity-panier-list">
                         {panier.length ? panier.map((item) => (
-                          <div className="entity-panier-row" key={item.id_produit}>
-                            <span>{item.nomProduit}</span>
+                          <div className="entity-panier-row" key={item.id_produit || item.ligneLocale}>
+                            <span>{item.nomProduit}{item.id_produit ? '' : ' (hors catalogue)'}</span>
                             <strong>{item.quantite} x {formatCurrency(item.prix)}</strong>
                           </div>
                         )) : <span className="entity-empty-inline">Aucun produit ajouté.</span>}
@@ -840,7 +915,7 @@ export default function ModelPage({ entity = 'commande' }) {
 
               {modalType === 'facture' && (
                 <>
-                  <div className="entity-grid"><label><span>Commande</span><select required value={form.fk_id_commande || ''} onChange={(e) => setForm({ ...form, fk_id_commande: e.target.value })}><option value="">Sélectionner</option>{orders.map((item) => <option key={item.id_commande} value={item.id_commande}>{item.reference}</option>)}</select></label><label><span>Montant total (Ar)</span><input required type="number" min="0.01" step="0.01" value={form.montant_total ?? ''} onChange={(e) => setForm({ ...form, montant_total: e.target.value })} /></label></div>
+                  <div className="entity-grid"><label><span>Commande</span><select required value={form.fk_id_commande || ''} onChange={(e) => setForm({ ...form, fk_id_commande: e.target.value })}><option value="">Sélectionner</option>{orders.filter((order) => !invoices.some((invoice) => String(invoice.fk_id_commande) === String(order.id_commande) && invoice.id_facture !== editingRecord?.id_facture)).map((item) => <option key={item.id_commande} value={item.id_commande}>{item.reference}</option>)}</select></label><label><span>Montant total (Ar)</span><input required type="number" min="0.01" step="0.01" value={form.montant_total ?? ''} onChange={(e) => setForm({ ...form, montant_total: e.target.value })} /></label></div>
                   <div className="entity-grid"><label><span>Date d’échéance</span><input type="date" value={form.date_echeance || ''} onChange={(e) => setForm({ ...form, date_echeance: e.target.value })} /></label><div><span>Référence facture</span><p className="entity-form-hint">{editingRecord?.reference_facture || 'Générée automatiquement à l’enregistrement'}</p></div></div>
                 </>
               )}

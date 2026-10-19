@@ -22,3 +22,11 @@ class FactureSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError('Le montant doit être supérieur à zéro.')
         return value
+
+    def validate_fk_id_commande(self, commande):
+        factures = commande.factures.all()
+        if self.instance:
+            factures = factures.exclude(pk=self.instance.pk)
+        if factures.exists():
+            raise serializers.ValidationError('Une facture existe déjà pour cette commande.')
+        return commande

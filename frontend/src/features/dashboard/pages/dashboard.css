@@ -340,7 +340,7 @@
 .about-identity { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
 .about-identity div { min-width: 0; padding: 10px 12px; border: 1px solid rgba(255, 255, 255, .11); border-radius: 11px; background: rgba(255, 255, 255, .045); }
 .about-identity dt { margin-bottom: 4px; color: rgba(245, 247, 246, .58); font-size: .55rem; }
-.about-identity dd { margin: 0; color: #fff; font-size: .65rem; font-weight: 600; }
+.about-identity dd { margin: 0; color: #fff; font-size: .65rem; font-weight: 600; overflow-wrap: anywhere; }
 .about-mpd-viewport { max-width: 100%; overflow-x: auto; border: 1px solid rgba(255, 255, 255, .12); border-radius: 12px; background: rgba(12, 17, 18, .2); scrollbar-color: rgba(240, 208, 183, .45) rgba(255, 255, 255, .05); scrollbar-width: thin; }
 .about-mpd-diagram { display: block; width: 1120px; max-width: none; height: auto; }
 .about-mpd-links path { fill: none; stroke: rgba(240, 208, 183, .76); stroke-width: 2; marker-end: url(#about-mpd-arrow); }
@@ -534,7 +534,7 @@
   .about-modal-header { padding: 17px 16px 14px; }
   .about-modal-content { padding: 5px 16px 14px; }
   .about-modal-footer { padding: 10px 16px; }
-  .about-identity,
+  .about-identity { width: 100%; grid-template-columns: minmax(0, 1fr); }
   .notification-button { width: 33px; flex-basis: 33px; }
   .profile-avatar { width: 33px; height: 33px; }
   .dashboard-main { padding: 91px 15px 13px; }

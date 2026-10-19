@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { register } from "../../../api/auth.api";
+import { register, verifyRegistration } from "../../../api/auth.api";
 import RegisterForm from "../components/RegisterForm";
+import VerificationForm from "../components/VerificationForm";
 import "../styles/auth.css";
 
 function getRegistrationError(error) {
@@ -35,12 +36,30 @@ export default function RegisterPage() {
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
     const [registered, setRegistered] = useState(false);
+    const [verificationEmail, setVerificationEmail] = useState("");
+    const [verificationCode, setVerificationCode] = useState("");
+    const [verificationStep, setVerificationStep] = useState(false);
 
     const handleRegister = async (userData) => {
         setLoading(true);
         setError(null);
         try {
             await register(userData);
+            setVerificationEmail(userData.email);
+            setVerificationCode("");
+            setVerificationStep(true);
+        } catch (requestError) {
+            setError(getRegistrationError(requestError));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVerify = async (verificationData) => {
+        setLoading(true);
+        setError(null);
+        try {
+            await verifyRegistration(verificationData);
             setRegistered(true);
         } catch (requestError) {
             setError(getRegistrationError(requestError));
@@ -55,18 +74,33 @@ export default function RegisterPage() {
                 <div className="login-heading register-heading">
                     <p className="login-eyebrow">GESTION DE COMMANDE</p>
                     <h1 id="register-title">
-                        {registered ? "Bienvenue !" : <>Créez votre<br />compte</>}
+                        {registered ? "Bienvenue !" : verificationStep ? "Vérifiez votre e-mail" : <>Créez votre<br />compte</>}
                     </h1>
                     <p className="login-intro">
                         {registered
                             ? "Votre compte a été créé avec succès. Vous pouvez maintenant vous connecter."
-                            : "Rejoignez-nous en quelques instants."}
+                            : verificationStep
+                                ? `Un code à 6 chiffres a été envoyé à ${verificationEmail}. Il est valable 10 minutes.`
+                                : "Rejoignez-nous en quelques instants."}
                     </p>
                 </div>
                 {registered ? (
                     <p className="login-signup register-success" role="status">
                         <Link to="/login">Se connecter à mon compte</Link>
                     </p>
+                ) : verificationStep ? (
+                    <VerificationForm
+                        email={verificationEmail}
+                        code={verificationCode}
+                        setCode={setVerificationCode}
+                        onSubmit={handleVerify}
+                        onBack={() => {
+                            setVerificationStep(false);
+                            setError(null);
+                        }}
+                        error={error}
+                        loading={loading}
+                    />
                 ) : (
                     <>
                         <RegisterForm

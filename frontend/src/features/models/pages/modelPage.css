@@ -419,6 +419,25 @@
   gap: 8px;
 }
 
+.entity-panier-controls.is-custom {
+  grid-template-columns: minmax(0, 1.4fr) minmax(100px, 0.8fr) 90px auto;
+}
+
+.entity-panier-type {
+  display: grid;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.62rem;
+}
+
+.entity-table td small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.58rem;
+  line-height: 1.45;
+}
+
 .entity-panier-list {
   display: grid;
   gap: 7px;
@@ -524,7 +543,8 @@
   .entity-panel-header:has(.product-search) { align-items: stretch; flex-direction: column; }
   .product-search { width: 100%; max-width: none; }
   .entity-grid,
-  .entity-panier-controls {
+  .entity-panier-controls,
+  .entity-panier-controls.is-custom {
     grid-template-columns: 1fr;
   }
 }

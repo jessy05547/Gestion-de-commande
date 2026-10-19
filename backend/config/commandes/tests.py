@@ -141,15 +141,19 @@ class UserDataIsolationTests(APITestCase):
         self.assertEqual(command_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(command_response.data['cree_par'], self.user_a.pk)
 
-        invoice_response = self.client.post('/api/factures/', {
-            'fk_id_commande': command_response.data['id_commande'],
-            'montant_total': '12.50',
-        })
-        self.assertEqual(invoice_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(invoice_response.data['cree_par'], self.user_a.pk)
+        invoice = Facture.objects.get(fk_id_commande_id=command_response.data['id_commande'])
+        self.assertEqual(invoice.montant_total, Decimal('12.50'))
+        self.assertEqual(invoice.cree_par, self.user_a)
+        invoice_response = self.client.get('/api/factures/')
+        self.assertEqual(invoice_response.status_code, status.HTTP_200_OK)
+        invoice_data = next(
+            row for row in invoice_response.data
+            if row['id_facture'] == invoice.pk
+        )
+        self.assertEqual(invoice_data['cree_par'], self.user_a.pk)
 
         payment_response = self.client.post('/api/paiements/', {
-            'fk_id_facture': invoice_response.data['id_facture'],
+            'fk_id_facture': invoice.pk,
             'montant': '12.50',
             'mode_paiement': 'Virement',
         })
@@ -183,6 +187,62 @@ class UserDataIsolationTests(APITestCase):
             'mode_paiement': 'Virement',
         })
         self.assertEqual(foreign_payment.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_order_accepts_catalogue_and_non_catalogue_items(self):
+        self.client.force_authenticate(self.user_a)
+        response = self.client.post('/api/commandes/', {
+            'fk_id_fournisseur': self.supplier_a.pk,
+            'status': Commande.Status.EN_ATTENTE,
+            'panier': [
+                {
+                    'id_produit': self.product_a.pk,
+                    'prix': '0.01',
+                    'quantite': '1',
+                },
+                {
+                    'nom_produit': 'Prestation ponctuelle',
+                    'prix': '12.50',
+                    'quantite': '3',
+                },
+            ],
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['total'], Decimal('137.50'))
+        invoice = Facture.objects.get(fk_id_commande_id=response.data['id_commande'])
+        self.assertEqual(invoice.montant_total, Decimal('137.50'))
+        self.assertEqual(invoice.cree_par, self.user_a)
+        self.assertEqual(
+            [(line['nom_produit'], line['id_produit']) for line in response.data['lignes']],
+            [('Produit A', self.product_a.pk), ('Prestation ponctuelle', None)],
+        )
+        self.assertEqual(response.data['lignes'][0]['prix'], Decimal('100.00'))
+
+        self.product_a.delete()
+        order = Commande.objects.get(pk=response.data['id_commande'])
+        catalog_line = order.lignes_commandes.get(libelle='Produit A')
+        self.assertIsNone(catalog_line.fk_id_produit_id)
+        self.assertEqual(catalog_line.prix, Decimal('100.00'))
+
+    def test_non_catalogue_order_item_requires_name_and_price(self):
+        self.client.force_authenticate(self.user_a)
+        response = self.client.post('/api/commandes/', {
+            'fk_id_fournisseur': self.supplier_a.pk,
+            'panier': [{'quantite': '1'}],
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('panier', response.data)
+
+    def test_cannot_create_a_second_invoice_for_an_order(self):
+        self.client.force_authenticate(self.user_a)
+        response = self.client.post('/api/factures/', {
+            'fk_id_commande': self.command_a.pk,
+            'montant_total': '100.00',
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Une facture existe déjà', str(response.data))
 
     def test_data_forms_reject_invalid_values(self):
         self.client.force_authenticate(self.user_a)

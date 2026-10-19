@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'anymail',
     'commandes',
     'utilisateurs',
     'paiement',
@@ -203,12 +204,15 @@ STORAGES = {
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': os.environ.get(
-            'DJANGO_EMAIL_BACKEND',
-            'django.core.mail.backends.console.EmailBackend'
-            if DEBUG else 'django.core.mail.backends.smtp.EmailBackend',
-        ),
-    },
+EMAIL_BACKEND = os.environ.get(
+    'DJANGO_EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend'
+    if DEBUG else 'anymail.backends.brevo.EmailBackend',
+)
+ANYMAIL = {
+    'BREVO_API_KEY': os.environ.get('BREVO_API_KEY', ''),
 }
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DJANGO_DEFAULT_FROM_EMAIL',
+    'webmaster@localhost' if DEBUG else '',
+)

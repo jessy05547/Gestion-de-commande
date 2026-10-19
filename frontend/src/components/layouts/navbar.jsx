@@ -360,7 +360,7 @@ export default function Navbar({
                         onClick={() => setProfileMenuOpen((open) => !open)}
                     >
                         <span className="profile-avatar">{user?.name?.charAt(0)?.toUpperCase() || "U"}</span>
-                        <span className="profile-copy"><strong>{user?.name || "Utilisateur"}</strong><small>{user?.role || "Compte connecté"}</small></span>
+                        <span className="profile-copy"><strong>{user?.name || "Utilisateur"}</strong></span>
                         <Icon name="chevron" />
                     </button>
                     {profileMenuOpen && (

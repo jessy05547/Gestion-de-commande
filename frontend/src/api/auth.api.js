@@ -9,3 +9,8 @@ export const register = async (userData) => {
     const response = await api.post('/utilisateurs/register/', userData);
     return response.data;
 };
+
+export const verifyRegistration = async (verificationData) => {
+    const response = await api.post('/utilisateurs/verify-registration/', verificationData);
+    return response.data;
+};

@@ -77,3 +77,18 @@ class Utilisateurs(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.nomUtilisateur} {self.prenomUtilisateur}"
+
+
+class PendingRegistration(models.Model):
+    email = models.EmailField(unique=True)
+    nomUtilisateur = models.CharField(max_length=255)
+    prenomUtilisateur = models.CharField(max_length=255)
+    telephone = models.CharField(max_length=20, blank=True)
+    password = models.CharField(max_length=128)
+    code_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    date_creation = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Inscription en attente pour {self.email}"

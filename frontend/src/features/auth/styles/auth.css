@@ -111,6 +111,21 @@
   margin-top: 4px;
 }
 
+.register-back-button {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.register-back-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .register-form .login-field label span {
   color: rgba(255, 255, 255, 0.65);
   font-weight: 400;
@@ -178,6 +193,80 @@
   color: #fff;
   font-size: 0.88rem;
   transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.password-input-wrap {
+  position: relative;
+}
+
+.password-input-wrap input {
+  padding-right: 42px;
+}
+
+.password-visibility-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.76);
+  cursor: pointer;
+}
+
+.password-visibility-toggle:hover,
+.password-visibility-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.password-visibility-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
+}
+
+.password-visibility-toggle svg {
+  width: 19px;
+  height: 19px;
+}
+
+.password-requirements {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
+}
+
+.password-requirements li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  transition: color 160ms ease;
+}
+
+.password-requirements li.is-valid {
+  color: #8fe0ad;
+}
+
+.password-requirements li.is-invalid {
+  color: #ffaaa5;
+}
+
+.password-requirements li span {
+  width: 12px;
+  flex: 0 0 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
 }
 
 .login-field input::placeholder {
