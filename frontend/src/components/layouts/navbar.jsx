@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { getProduits } from "../../api/produit.api";
+import { getNotifications, markAllNotificationsRead as markAllServerNotificationsRead, markNotificationRead as markServerNotificationRead } from "../../api/notification.api";
+import { getUtilisateur } from "../../api/utilisateur.api";
 import { DATA_MUTATED_EVENT } from "../../api/axios";
 import { getAuthenticatedUser, SESSION_CHANGED_EVENT } from "../../features/auth/authSession";
 
@@ -31,6 +33,7 @@ function Icon({ name }) {
         chevron: <path d="m7 10 5 5 5-5" />,
         moon: <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" />,
         sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></>,
+        user: <><circle cx="12" cy="8" r="4" /><path d="M5 21a7 7 0 0 1 14 0" /></>,
     };
     return <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -111,6 +114,10 @@ export default function Navbar({
 }) {
     const [searchOpen, setSearchOpen] = useState(false);
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+    const [profileOpen, setProfileOpen] = useState(false);
+    const [profileDetails, setProfileDetails] = useState(null);
+    const [profileLoading, setProfileLoading] = useState(false);
+    const [profileError, setProfileError] = useState("");
     const [aboutOpen, setAboutOpen] = useState(false);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [notifications, setNotifications] = useState([]);
@@ -118,15 +125,23 @@ export default function Navbar({
     const [notificationsLoaded, setNotificationsLoaded] = useState(false);
     const [notificationsError, setNotificationsError] = useState("");
     const [activityNotifications, setActivityNotifications] = useState(readStoredNotifications);
+    const [serverNotifications, setServerNotifications] = useState([]);
+    const [serverNotificationsError, setServerNotificationsError] = useState("");
     const [unreadOnly, setUnreadOnly] = useState(false);
     const [user, setUser] = useState(getAuthenticatedUser);
     const profileMenuRef = useRef(null);
+    const profileTriggerRef = useRef(null);
+    const profileDialogRef = useRef(null);
     const aboutTriggerRef = useRef(null);
     const aboutDialogRef = useRef(null);
-    const unreadCount = activityNotifications.filter((notification) => !notification.read).length;
+    const unreadCount = activityNotifications.filter((notification) => !notification.read).length
+        + serverNotifications.filter((notification) => !notification.read_at).length;
     const visibleActivity = unreadOnly
         ? activityNotifications.filter((notification) => !notification.read)
         : activityNotifications;
+    const visibleServerNotifications = unreadOnly
+        ? serverNotifications.filter((notification) => !notification.read_at)
+        : serverNotifications;
 
     const fetchLowStockProducts = useCallback(async () => {
         const data = await getProduits();
@@ -135,8 +150,24 @@ export default function Navbar({
             .sort((first, second) => Number(first.quantiteStock) - Number(second.quantiteStock));
     }, []);
 
+    const refreshServerNotifications = useCallback(async () => {
+        try {
+            const data = await getNotifications();
+            setServerNotifications(Array.isArray(data) ? data : []);
+            setServerNotificationsError("");
+        } catch (error) {
+            console.error("Impossible de charger les notifications du serveur.", error);
+            setServerNotificationsError("Impossible de charger les notifications de commande.");
+        }
+    }, []);
+
     useEffect(() => {
-        const updateUser = () => setUser(getAuthenticatedUser());
+        const updateUser = () => {
+            const nextUser = getAuthenticatedUser();
+            setUser(nextUser);
+            setServerNotifications([]);
+            if (nextUser) refreshServerNotifications();
+        };
         const onDataMutated = (event) => {
             const notification = {
                 id: `${Date.now()}-${Math.random()}`,
@@ -145,6 +176,7 @@ export default function Navbar({
                 read: false,
             };
             setActivityNotifications((current) => [notification, ...current].slice(0, 20));
+            refreshServerNotifications();
             setNotificationsLoaded(false);
             setNotificationsLoading(true);
             fetchLowStockProducts()
@@ -162,7 +194,23 @@ export default function Navbar({
             window.removeEventListener(SESSION_CHANGED_EVENT, updateUser);
             window.removeEventListener(DATA_MUTATED_EVENT, onDataMutated);
         };
-    }, [fetchLowStockProducts]);
+    }, [fetchLowStockProducts, refreshServerNotifications]);
+
+    useEffect(() => {
+        let active = true;
+        getNotifications()
+            .then((data) => {
+                if (!active) return;
+                setServerNotifications(Array.isArray(data) ? data : []);
+                setServerNotificationsError("");
+            })
+            .catch((error) => {
+                if (!active) return;
+                console.error("Impossible de charger les notifications du serveur.", error);
+                setServerNotificationsError("Impossible de charger les notifications de commande.");
+            });
+        return () => { active = false; };
+    }, []);
 
     useEffect(() => {
         const closeOnOutsideClick = (event) => {
@@ -171,6 +219,7 @@ export default function Navbar({
         const closeOnEscape = (event) => {
             if (event.key === "Escape") {
                 setAboutOpen(false);
+                setProfileOpen(false);
                 setProfileMenuOpen(false);
             }
         };
@@ -181,6 +230,18 @@ export default function Navbar({
             document.removeEventListener("keydown", closeOnEscape);
         };
     }, []);
+
+    useEffect(() => {
+        if (!profileOpen) return undefined;
+        const trigger = profileTriggerRef.current;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        profileDialogRef.current?.focus();
+        return () => {
+            document.body.style.overflow = previousOverflow;
+            trigger?.focus();
+        };
+    }, [profileOpen]);
 
     useEffect(() => {
         if (!aboutOpen) return undefined;
@@ -222,6 +283,7 @@ export default function Navbar({
 
     const toggleNotifications = () => {
         setNotificationsOpen((isOpen) => !isOpen);
+        refreshServerNotifications();
         if (!notificationsLoaded && !notificationsLoading) {
             setNotificationsLoading(true);
             fetchLowStockProducts()
@@ -241,6 +303,41 @@ export default function Navbar({
     };
     const markAllNotificationsRead = () => {
         setActivityNotifications((current) => current.map((notification) => ({ ...notification, read: true })));
+        markAllServerNotificationsRead()
+            .then(refreshServerNotifications)
+            .catch((error) => {
+                console.error("Impossible de marquer les notifications comme vues.", error);
+                setServerNotificationsError("Impossible de mettre à jour les notifications.");
+            });
+    };
+    const openServerNotification = (notification) => {
+        markServerNotificationRead(notification.id_notification)
+            .then((updated) => setServerNotifications((current) => current.map((item) =>
+                item.id_notification === updated.id_notification ? updated : item)))
+            .catch((error) => {
+                console.error("Impossible de marquer la notification comme vue.", error);
+                setServerNotificationsError("Impossible de mettre à jour cette notification.");
+            });
+        setNotificationsOpen(false);
+    };
+    const openUserProfile = async () => {
+        setProfileMenuOpen(false);
+        setProfileOpen(true);
+        setProfileDetails(null);
+        setProfileError("");
+        if (!user?.id) {
+            setProfileError("L’identifiant du compte est indisponible. Reconnectez-vous pour afficher toutes les informations du profil.");
+            return;
+        }
+
+        setProfileLoading(true);
+        try {
+            setProfileDetails(await getUtilisateur(user.id));
+        } catch {
+            setProfileError("Les informations complètes du profil n’ont pas pu être chargées.");
+        } finally {
+            setProfileLoading(false);
+        }
     };
 
     const hasSearchResults = searchResults.products.length || searchResults.orders.length;
@@ -331,7 +428,23 @@ export default function Navbar({
                                     {!notification.read && <button className="notification-read-button" type="button" onClick={() => markNotificationRead(notification.id)}>Marquer comme vue</button>}
                                 </article>
                             ))}
-                            {unreadOnly && !visibleActivity.length && <p className="popover-message">Aucune notification non lue.</p>}
+                            {visibleServerNotifications.map((notification) => (
+                                <Link
+                                    className={`notification-item${notification.read_at ? " is-read" : " is-unread"}`}
+                                    key={notification.id_notification}
+                                    to={notification.kind === "invoice_created" ? "/dashboard/factures" : "/dashboard/commandes"}
+                                    state={notification.kind === "payment_required" ? { paymentOrderId: notification.commande_id } : null}
+                                    onClick={() => openServerNotification(notification)}
+                                >
+                                    <span className="notification-stock" />
+                                    <span className="notification-copy">
+                                        <strong>{notification.message}</strong>
+                                        <small>{new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(new Date(notification.created_at))} · {notification.read_at ? "Vue" : "Non lue"}</small>
+                                    </span>
+                                </Link>
+                            ))}
+                            {serverNotificationsError && <p className="popover-message popover-error">{serverNotificationsError}</p>}
+                            {unreadOnly && !visibleActivity.length && !visibleServerNotifications.length && <p className="popover-message">Aucune notification non lue.</p>}
                             {notifications.length > 0 && <div className="popover-heading">STOCK À SURVEILLER</div>}
                             {notificationsLoading && <p className="popover-message">Chargement des stocks…</p>}
                             {notificationsError && <p className="popover-message popover-error">{notificationsError}</p>}
@@ -352,6 +465,7 @@ export default function Navbar({
                 </div>
                 <div className="navbar-profile-wrap" ref={profileMenuRef}>
                     <button
+                        ref={profileTriggerRef}
                         className="navbar-profile"
                         type="button"
                         aria-label={`Menu du profil ${user?.name || "utilisateur"}`}
@@ -366,6 +480,15 @@ export default function Navbar({
                     {profileMenuOpen && (
                         <section className="navbar-popover profile-menu" id="profile-menu" aria-label="Préférences du profil">
                             <div className="profile-menu-heading"><strong>{user?.name || "Utilisateur"}</strong><small>{user?.role || "Compte connecté"}</small></div>
+                            <button
+                                className="theme-toggle-option profile-menu-option"
+                                type="button"
+                                onClick={openUserProfile}
+                            >
+                                <span className="theme-option-icon"><Icon name="user" /></span>
+                                <span><strong>Mon profil</strong><small>Consulter mes informations personnelles</small></span>
+                                <span className="about-menu-arrow" aria-hidden="true">›</span>
+                            </button>
                             <button className="theme-toggle-option" type="button" aria-pressed={darkMode} onClick={onToggleTheme}>
                                 <span className="theme-option-icon"><Icon name={darkMode ? "sun" : "moon"} /></span>
                                 <span><strong>{darkMode ? "Mode clair" : "Mode sombre"}</strong><small>{darkMode ? "Désactiver le thème sombre" : "Activer le thème sombre"}</small></span>
@@ -443,6 +566,51 @@ export default function Navbar({
                         <footer className="about-modal-footer">
                             <span>Gestion de commande · Projet académique</span>
                             <button type="button" className="about-modal-done" onClick={() => setAboutOpen(false)}>Fermer</button>
+                        </footer>
+                    </section>
+                </div>,
+                document.body,
+            )}
+            {profileOpen && createPortal(
+                <div className="about-modal-backdrop" onMouseDown={(event) => {
+                    if (event.target === event.currentTarget) setProfileOpen(false);
+                }}>
+                    <section
+                        className="about-modal profile-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="profile-modal-title"
+                        tabIndex={-1}
+                        ref={profileDialogRef}
+                        onMouseDown={(event) => event.stopPropagation()}
+                    >
+                        <header className="about-modal-header">
+                            <div>
+                                <p className="about-modal-kicker">MON COMPTE</p>
+                                <h2 id="profile-modal-title">Profil utilisateur</h2>
+                                <p>Informations personnelles du compte connecté.</p>
+                            </div>
+                            <button className="about-modal-close" type="button" aria-label="Fermer le profil" onClick={() => setProfileOpen(false)}>×</button>
+                        </header>
+                        <div className="about-modal-content profile-modal-content" aria-live="polite">
+                            <div className="profile-summary">
+                                <span className="profile-avatar">{user?.name?.charAt(0)?.toUpperCase() || "U"}</span>
+                                <div><strong>{user?.name || "Utilisateur"}</strong><small>{user?.role || "Compte connecté"}</small></div>
+                            </div>
+                            {profileLoading && <p className="popover-message" role="status">Chargement du profil…</p>}
+                            {profileError && <p className="profile-load-error" role="alert">{profileError}</p>}
+                            <dl className="about-identity profile-identity">
+                                <div><dt>Prénom</dt><dd>{profileDetails?.prenomUtilisateur || user?.firstName || "Non renseigné"}</dd></div>
+                                <div><dt>Nom</dt><dd>{profileDetails?.nomUtilisateur || user?.lastName || "Non renseigné"}</dd></div>
+                                <div><dt>Adresse e-mail</dt><dd>{profileDetails?.email || user?.email || "Non renseignée"}</dd></div>
+                                <div><dt>Téléphone</dt><dd>{profileDetails?.telephone || "Non renseigné"}</dd></div>
+                                <div><dt>Rôle</dt><dd>{user?.role || "Utilisateur"}</dd></div>
+                                <div><dt>Membre depuis</dt><dd>{profileDetails?.date_joined ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" }).format(new Date(profileDetails.date_joined)) : "Non renseigné"}</dd></div>
+                            </dl>
+                        </div>
+                        <footer className="about-modal-footer">
+                            <span>Informations du compte connecté</span>
+                            <button type="button" className="about-modal-done" onClick={() => setProfileOpen(false)}>Fermer</button>
                         </footer>
                     </section>
                 </div>,

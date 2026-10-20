@@ -1,12 +1,17 @@
 from decimal import Decimal
+from datetime import timedelta
+from unittest.mock import patch
 
+from django.core import mail
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from commandes.models import Commande
+from commandes.models import Commande, Notification
 from facture.models import Facture
 from fournisseurs.models import Fournisseur
+from ligneCommande.models import LigneCommande
 from paiement.models import Paiement
 from produit.models import Produit
 from utilisateurs.models import Utilisateurs
@@ -141,16 +146,16 @@ class UserDataIsolationTests(APITestCase):
         self.assertEqual(command_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(command_response.data['cree_par'], self.user_a.pk)
 
-        invoice = Facture.objects.get(fk_id_commande_id=command_response.data['id_commande'])
-        self.assertEqual(invoice.montant_total, Decimal('12.50'))
+        self.assertFalse(Facture.objects.filter(
+            fk_id_commande_id=command_response.data['id_commande'],
+        ).exists())
+        invoice_response = self.client.post('/api/factures/', {
+            'fk_id_commande': command_response.data['id_commande'],
+            'montant_total': '12.50',
+        })
+        self.assertEqual(invoice_response.status_code, status.HTTP_201_CREATED)
+        invoice = Facture.objects.get(pk=invoice_response.data['id_facture'])
         self.assertEqual(invoice.cree_par, self.user_a)
-        invoice_response = self.client.get('/api/factures/')
-        self.assertEqual(invoice_response.status_code, status.HTTP_200_OK)
-        invoice_data = next(
-            row for row in invoice_response.data
-            if row['id_facture'] == invoice.pk
-        )
-        self.assertEqual(invoice_data['cree_par'], self.user_a.pk)
 
         payment_response = self.client.post('/api/paiements/', {
             'fk_id_facture': invoice.pk,
@@ -209,9 +214,9 @@ class UserDataIsolationTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(response.data['total'], Decimal('137.50'))
-        invoice = Facture.objects.get(fk_id_commande_id=response.data['id_commande'])
-        self.assertEqual(invoice.montant_total, Decimal('137.50'))
-        self.assertEqual(invoice.cree_par, self.user_a)
+        self.assertFalse(Facture.objects.filter(
+            fk_id_commande_id=response.data['id_commande'],
+        ).exists())
         self.assertEqual(
             [(line['nom_produit'], line['id_produit']) for line in response.data['lignes']],
             [('Produit A', self.product_a.pk), ('Prestation ponctuelle', None)],
@@ -219,20 +224,27 @@ class UserDataIsolationTests(APITestCase):
         self.assertEqual(response.data['lignes'][0]['prix'], Decimal('100.00'))
 
         self.product_a.delete()
-        order = Commande.objects.get(pk=response.data['id_commande'])
-        catalog_line = order.lignes_commandes.get(libelle='Produit A')
-        self.assertIsNone(catalog_line.fk_id_produit_id)
-        self.assertEqual(catalog_line.prix, Decimal('100.00'))
+        line = response.data['lignes'][0]
+        order_line = Commande.objects.get(
+            pk=response.data['id_commande'],
+        ).lignes_commandes.get(pk=line['id_ligne_commande'])
+        self.assertIsNone(order_line.fk_id_produit_id)
+        self.assertEqual(order_line.libelle, 'Produit A')
 
-    def test_non_catalogue_order_item_requires_name_and_price(self):
+    def test_non_catalogue_item_requires_name_and_price(self):
         self.client.force_authenticate(self.user_a)
-        response = self.client.post('/api/commandes/', {
-            'fk_id_fournisseur': self.supplier_a.pk,
-            'panier': [{'quantite': '1'}],
-        }, format='json')
+        for item in (
+            {'quantite': '1'},
+            {'nom_produit': 'Prestation ponctuelle', 'quantite': '1'},
+        ):
+            with self.subTest(item=item):
+                response = self.client.post('/api/commandes/', {
+                    'fk_id_fournisseur': self.supplier_a.pk,
+                    'panier': [item],
+                }, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('panier', response.data)
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn('panier', response.data)
 
     def test_cannot_create_a_second_invoice_for_an_order(self):
         self.client.force_authenticate(self.user_a)
@@ -313,3 +325,218 @@ class UserDataIsolationTests(APITestCase):
         })
         self.assertEqual(valid_user.status_code, status.HTTP_201_CREATED)
         self.assertEqual(valid_user.data['role'], Utilisateurs.Role.ACHETEUR)
+
+    @patch('commandes.views.send_supplier_order_email', return_value=1)
+    def test_order_is_marked_sent_after_brevo_accepts_email(self, send_email):
+        self.client.force_authenticate(self.user_a)
+        response = self.client.post('/api/commandes/', {
+            'fk_id_fournisseur': self.supplier_a.pk,
+            'panier': [{
+                'id_produit': self.product_a.pk,
+                'quantite': '1',
+            }],
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        order = Commande.objects.get(pk=response.data['id_commande'])
+        self.assertEqual(order.status, Commande.Status.ENVOYE)
+        self.assertEqual(order.email_status, Commande.EmailStatus.SENT)
+        self.assertTrue(order.supplier_response_token_hash)
+        send_email.assert_called_once()
+
+    @patch('commandes.views.send_supplier_order_email', side_effect=RuntimeError('Brevo unavailable'))
+    def test_failed_brevo_send_keeps_order_pending_and_reports_error(self, send_email):
+        self.client.force_authenticate(self.user_a)
+        response = self.client.post('/api/commandes/', {
+            'fk_id_fournisseur': self.supplier_a.pk,
+            'panier': [{
+                'id_produit': self.product_a.pk,
+                'quantite': '1',
+            }],
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('email_error', response.data)
+        order = Commande.objects.get(pk=response.data['id_commande'])
+        self.assertEqual(order.status, Commande.Status.EN_ATTENTE)
+        self.assertEqual(order.email_status, Commande.EmailStatus.FAILED)
+        self.assertFalse(order.supplier_response_token_hash)
+        send_email.assert_called_once()
+
+    def test_supplier_can_confirm_once_and_custom_item_enters_catalogue(self):
+        order = Commande.objects.create(
+            fk_id_fournisseur=self.supplier_a,
+            cree_par=self.user_a,
+            status=Commande.Status.ENVOYE,
+            email_status=Commande.EmailStatus.SENT,
+        )
+        LigneCommande.objects.create(
+            fk_id_commande=order,
+            fk_id_produit=self.product_a,
+            libelle=self.product_a.nomProduit,
+            quantite=Decimal('2'),
+            prix=Decimal('100.00'),
+        )
+        LigneCommande.objects.create(
+            fk_id_commande=order,
+            libelle='Article spécial',
+            quantite=Decimal('3'),
+            prix=Decimal('12.50'),
+        )
+        from commandes.workflow import issue_supplier_response_token
+
+        token = issue_supplier_response_token(order)
+        url = f'/commandes/fournisseur/reponse/{token}/'
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_200_OK)
+
+        response = self.client.post(url, {'decision': 'confirm'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Commande.Status.CONFIRME)
+        self.assertFalse(order.supplier_response_token_hash)
+
+        custom_product = Produit.objects.get(nomProduit='Article spécial', cree_par=self.user_a)
+        self.assertEqual(custom_product.fk_id_fournisseur, self.supplier_a)
+        self.assertEqual(custom_product.quantiteStock, Decimal('0'))
+        custom_line = order.lignes_commandes.get(libelle='Article spécial')
+        self.assertEqual(custom_line.fk_id_produit, custom_product)
+        self.assertEqual(
+            set(order.notifications.values_list('kind', flat=True)),
+            {Notification.Kind.PRODUCT_CREATED, Notification.Kind.PAYMENT_REQUIRED},
+        )
+        self.assertEqual(self.client.post(url, {'decision': 'confirm'}).status_code, 410)
+
+    def test_supplier_response_link_expires(self):
+        order = Commande.objects.create(
+            fk_id_fournisseur=self.supplier_a,
+            cree_par=self.user_a,
+            status=Commande.Status.ENVOYE,
+            email_status=Commande.EmailStatus.SENT,
+        )
+        from commandes.workflow import issue_supplier_response_token
+
+        token = issue_supplier_response_token(order)
+        order.supplier_response_expires_at = timezone.now() - timedelta(seconds=1)
+        order.save(update_fields=['supplier_response_expires_at'])
+
+        response = self.client.get(f'/commandes/fournisseur/reponse/{token}/')
+        self.assertEqual(response.status_code, 410)
+
+    def test_supplier_can_refuse_order_and_owner_is_notified(self):
+        order = Commande.objects.create(
+            fk_id_fournisseur=self.supplier_a,
+            cree_par=self.user_a,
+            status=Commande.Status.ENVOYE,
+            email_status=Commande.EmailStatus.SENT,
+        )
+        from commandes.workflow import issue_supplier_response_token
+
+        token = issue_supplier_response_token(order)
+        response = self.client.post(
+            f'/commandes/fournisseur/reponse/{token}/',
+            {'decision': 'refuse'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Commande.Status.ANNULEE)
+        self.assertEqual(
+            order.notifications.get().kind,
+            Notification.Kind.SUPPLIER_REFUSED,
+        )
+
+    def test_persistent_notifications_are_scoped_to_the_authenticated_user(self):
+        from commandes.workflow import create_notification
+
+        notification = create_notification(
+            self.user_a,
+            Notification.Kind.PAYMENT_REQUIRED,
+            'Paiement requis.',
+            commande=self.command_a,
+        )
+        self.client.force_authenticate(self.user_b)
+
+        response = self.client.get('/api/notifications/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+        self.assertEqual(
+            self.client.post(f'/api/notifications/{notification.pk}/mark-read/').status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    @patch('commandes.views.send_supplier_payment_email', return_value=1)
+    def test_payment_creates_invoice_payment_stock_and_notifications(self, send_email):
+        order = Commande.objects.create(
+            fk_id_fournisseur=self.supplier_a,
+            cree_par=self.user_a,
+            status=Commande.Status.CONFIRME,
+        )
+        LigneCommande.objects.create(
+            fk_id_commande=order,
+            fk_id_produit=self.product_a,
+            libelle=self.product_a.nomProduit,
+            quantite=Decimal('2'),
+            prix=Decimal('100.00'),
+        )
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.post(
+            f'/api/commandes/{order.pk}/complete-payment/',
+            {'mode_paiement': 'Virement'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        order.refresh_from_db()
+        self.product_a.refresh_from_db()
+        invoice = Facture.objects.get(fk_id_commande=order)
+        payment = Paiement.objects.get(fk_id_facture=invoice)
+        self.assertEqual(order.status, Commande.Status.LIVREE)
+        self.assertEqual(invoice.montant_total, Decimal('200.00'))
+        self.assertEqual(payment.montant, Decimal('200.00'))
+        self.assertEqual(self.product_a.quantiteStock, Decimal('10.00'))
+        self.assertEqual(order.notifications.count(), 2)
+        send_email.assert_called_once()
+
+        duplicate = self.client.post(
+            f'/api/commandes/{order.pk}/complete-payment/',
+            {'mode_paiement': 'Virement'},
+            format='json',
+        )
+        self.assertEqual(duplicate.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invoice_download_is_a_pdf_and_scoped_to_owner(self):
+        self.client.force_authenticate(self.user_a)
+        response = self.client.get(f'/api/factures/{self.invoice_a.pk}/download/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertTrue(b''.join(response.streaming_content).startswith(b'%PDF'))
+
+        self.client.force_authenticate(self.user_b)
+        self.assertEqual(
+            self.client.get(f'/api/factures/{self.invoice_a.pk}/download/').status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        DEFAULT_FROM_EMAIL='commandes@example.test',
+    )
+    def test_supplier_payment_email_contains_invoice_pdf_and_reply_to(self):
+        from commandes.workflow import send_supplier_payment_email
+
+        sent = send_supplier_payment_email(
+            self.command_a,
+            self.invoice_a,
+            self.payment_a,
+            self.invoice_a.montant_total,
+        )
+
+        self.assertEqual(sent, 1)
+        email = mail.outbox[-1]
+        self.assertEqual(email.to, [self.supplier_a.email])
+        self.assertEqual(email.reply_to, [self.user_a.email])
+        self.assertEqual(len(email.attachments), 1)
+        name, content, content_type = email.attachments[0]
+        self.assertEqual(name, f'{self.invoice_a.reference_facture}.pdf')
+        self.assertEqual(content_type, 'application/pdf')
+        self.assertTrue(content.startswith(b'%PDF'))

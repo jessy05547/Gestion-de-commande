@@ -28,7 +28,14 @@ export function getAuthenticatedUser() {
             acheteur: "Acheteur",
             responsable: "Responsable achats",
         };
-        return { name, role: roles[payload.role] || payload.role || "Utilisateur" };
+        return {
+            id: payload.user_id,
+            email: payload.email || "",
+            firstName,
+            lastName,
+            name,
+            role: roles[payload.role] || payload.role || "Utilisateur",
+        };
     } catch {
         return null;
     }

@@ -195,45 +195,12 @@
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.password-input-wrap {
-  position: relative;
+.login-field .password-input-field {
+  padding-right: 4.5rem;
 }
 
-.password-input-wrap input {
-  padding-right: 42px;
-}
-
-.password-visibility-toggle {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  display: grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  padding: 0;
-  transform: translateY(-50%);
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.76);
-  cursor: pointer;
-}
-
-.password-visibility-toggle:hover,
-.password-visibility-toggle:focus-visible {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
-.password-visibility-toggle:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.8);
-  outline-offset: 2px;
-}
-
-.password-visibility-toggle svg {
-  width: 19px;
-  height: 19px;
+.login-field .password-input-toggle {
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .password-requirements {
@@ -242,6 +209,13 @@
   margin: 0;
   padding: 2px 0 0;
   list-style: none;
+}
+
+.password-requirements-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.68rem;
+  line-height: 1.5;
 }
 
 .password-requirements li {

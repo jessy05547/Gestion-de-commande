@@ -9,7 +9,6 @@ const navigation = [
     { to: "/dashboard/analyse", label: "Analyse", icon: "◷" },
     { to: "/dashboard/factures", label: "Factures", icon: "▤" },
     { to: "/dashboard/paiements", label: "Paiements", icon: "Ar" },
-    { to: "/dashboard/utilisateurs", label: "Utilisateurs", icon: "♙" },
 ];
 
 export default function Sidebar({ open = false, collapsed = false, onClose, onToggleCollapse, onLogout }) {

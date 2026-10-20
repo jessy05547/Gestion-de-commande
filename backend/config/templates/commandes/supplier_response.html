@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Réponse à la commande</title>
+    <style>
+      body { margin: 0; padding: 32px 16px; background: #f3f5f4; color: #243033; font: 16px/1.5 Arial, sans-serif; }
+      main { max-width: 680px; margin: 0 auto; padding: 28px; border-radius: 16px; background: #fff; box-shadow: 0 12px 40px #17232618; }
+      h1 { margin-top: 0; font-size: 1.5rem; }
+      table { width: 100%; margin: 20px 0; border-collapse: collapse; }
+      th, td { padding: 10px; border-bottom: 1px solid #e5e9e7; text-align: left; }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+      button { padding: 11px 18px; border: 0; border-radius: 8px; color: white; font-size: 1rem; cursor: pointer; }
+      .confirm { background: #267354; }
+      .refuse { background: #9c3d3d; }
+    </style>
+  </head>
+  <body>
+    <main>
+      {% if expired %}
+        <h1>Lien expiré ou déjà utilisé</h1>
+        <p>Cette demande n’est plus disponible. Contactez l’expéditeur si vous souhaitez répondre.</p>
+      {% elif completed %}
+        <h1>Réponse enregistrée</h1>
+        <p>
+          {% if decision == "confirm" %}La commande a été confirmée.{% else %}La commande a été refusée.{% endif %}
+          Vous pouvez fermer cette page.
+        </p>
+      {% else %}
+        <h1>Commande {{ order.reference }}</h1>
+        <p>Répondez à la demande de {{ order.cree_par.prenomUtilisateur }} {{ order.cree_par.nomUtilisateur }}.</p>
+        <table>
+          <thead><tr><th>Article</th><th>Quantité</th><th>Prix unitaire</th></tr></thead>
+          <tbody>
+            {% for line in lines %}
+              <tr><td>{{ line.libelle }}</td><td>{{ line.quantite }}</td><td>{{ line.prix }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p><strong>Total : {{ order.total }}</strong></p>
+        <div class="actions">
+          <form method="post"><button class="confirm" name="decision" value="confirm">Valider la commande</button></form>
+          <form method="post"><button class="refuse" name="decision" value="refuse">Refuser la commande</button></form>
+        </div>
+      {% endif %}
+    </main>
+  </body>
+</html>

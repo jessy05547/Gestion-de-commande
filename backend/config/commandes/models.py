@@ -6,6 +6,11 @@ from django.utils import timezone
 import uuid
 # Create your models here.
 class Commande(models.Model):
+    class EmailStatus(models.TextChoices):
+        PENDING = 'pending', 'En attente d’envoi'
+        SENT = 'sent', 'Accepté par Brevo'
+        FAILED = 'failed', 'Échec de l’envoi'
+
     class Status(models.TextChoices):
         ENVOYE = 'envoye', 'Envoyée'
         CONFIRME = 'confirme', 'Confirmée'
@@ -17,6 +22,13 @@ class Commande(models.Model):
     reference = models.CharField(max_length=255, unique=True, null=False, blank=True)
     dateCommande = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.EN_ATTENTE)
+    email_status = models.CharField(
+        max_length=20,
+        choices=EmailStatus.choices,
+        default=EmailStatus.PENDING,
+    )
+    supplier_response_token_hash = models.CharField(max_length=64, blank=True)
+    supplier_response_expires_at = models.DateTimeField(null=True, blank=True)
     fk_id_fournisseur = models.ForeignKey('fournisseurs.Fournisseur', on_delete=models.CASCADE, null=False, blank=False, related_name='commandes')
     cree_par = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
     date_creation = models.DateTimeField(auto_now_add=True)
@@ -40,3 +52,43 @@ class Commande(models.Model):
 
     def __str__(self):
         return f"Commande {self.id_commande} - {self.reference}"
+
+
+class Notification(models.Model):
+    class Kind(models.TextChoices):
+        PAYMENT_REQUIRED = 'payment_required', 'Paiement à effectuer'
+        SUPPLIER_REFUSED = 'supplier_refused', 'Commande refusée'
+        INVOICE_CREATED = 'invoice_created', 'Facture créée'
+        PAYMENT_COMPLETED = 'payment_completed', 'Paiement terminé'
+        PRODUCT_CREATED = 'product_created', 'Produit ajouté au catalogue'
+
+    id_notification = models.AutoField(primary_key=True)
+    utilisateur = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+    )
+    commande = models.ForeignKey(
+        Commande,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='notifications',
+    )
+    facture = models.ForeignKey(
+        'facture.Facture',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='notifications',
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    message = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('-created_at', '-id_notification')
+
+    def __str__(self):
+        return self.message

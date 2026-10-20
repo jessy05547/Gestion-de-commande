@@ -44,6 +44,10 @@ ALLOWED_HOSTS = [
 RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '').strip()
 if RAILWAY_PUBLIC_DOMAIN and RAILWAY_PUBLIC_DOMAIN not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(RAILWAY_PUBLIC_DOMAIN)
+PUBLIC_APP_URL = (
+    os.environ.get('DJANGO_PUBLIC_URL', '').strip()
+    or (f'https://{RAILWAY_PUBLIC_DOMAIN}' if RAILWAY_PUBLIC_DOMAIN else 'http://localhost:8000')
+).rstrip('/')
 
 AUTH_USER_MODEL = 'utilisateurs.Utilisateurs'
 
@@ -110,6 +114,11 @@ if DATABASE_URL:
         'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600),
     }
 else:
+    if os.environ.get('RAILWAY_ENVIRONMENT_NAME'):
+        raise ImproperlyConfigured(
+            "DATABASE_URL is not set. Add a database service (e.g. Postgres) and "
+            "reference its DATABASE_URL in this service's variables."
+        )
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',

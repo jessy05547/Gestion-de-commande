@@ -48,6 +48,7 @@ api.interceptors.response.use(
     if (
       (isMutation || isSupplierPrediction)
       && !response.config.url?.includes('/token/')
+      && !response.config.url?.includes('/notifications/')
       && typeof window !== 'undefined'
     ) {
       window.dispatchEvent(new CustomEvent(DATA_MUTATED_EVENT, {

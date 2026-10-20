@@ -359,6 +359,15 @@
   outline: none;
 }
 
+.entity-form .password-input-toggle {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.entity-password-requirements {
+  font-size: 0.56rem;
+  line-height: 1.45;
+}
+
 .entity-form select,
 .entity-panier-controls select {
   min-height: 43px;
